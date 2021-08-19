@@ -203,7 +203,7 @@ class PPO:
                 self.critic_optim.zero_grad()
                 critic_loss.backward()
                 self.critic_optim.step()
-
+                # self.tensorboard.update_stats(critic_loss=[None,critic_loss],actor_loss=[None,actor_loss])
                 # Log actor loss
                 self.logger['actor_losses'].append(actor_loss.detach())
 
@@ -393,6 +393,7 @@ class PPO:
         # print("Obs shape -> ",obs.shape)
 
         mean = self.actor(obs)
+        self.writer.add_graph(self.actor,torch.tensor(obs,dtype=torch.float))
 
         # Create a distribution with the mean action and std from the covariance matrix above.
         # For more information on how this distribution works, check out Andrew Ng's lecture on it:
