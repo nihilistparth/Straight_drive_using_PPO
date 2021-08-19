@@ -9,6 +9,7 @@ import numpy as np
 import cv2
 import random
 from collections import deque
+from random import randrange
 # from platform import python_version
 
 # print(python_version())
@@ -30,6 +31,15 @@ try:
 except IndexError:
     pass
 import carla
+'''
+[start_x,start_y,start_z,ed_x,end_y,end_z]
+'''
+# way_points = [[128.0,206.9,3.0,-22.1,204.2,3.0,180],[7.8,-35.6,3,9.7,-108.0,3.0,90],[-8.6,-123.1,3.0,-88.0,-36.1,3.0,90],[5.3,112.2,3.0,4.6,50.2,3.0,90],[59.9,7.4,3.0,190.0,9.9,3.0,270]]
+#way_points = [[128.0,206.9,3.0,-22.1,204.2,3.0],[18.1,-134.4,3.0,63.7,-133.5,3.0],[-10.0,34.4,3.0,-9.1,105.4,3.0],[5.6,119.1,3.0,4.9,52.1,3.0],[-77.2,93.6,3.0,-77.3,30.2,3.0]]
+# way_points = [[128.0,206.9,3.0,-22.1,204.2,3.0],[-72.3,81.4,3,-74.1,-118.6,3],[-62.5,-133.3,3,-16.2,-132.7,3],[261.4,199.1,3,322.3,198.4,3],[335.1,140.4,3,334.7,182.5,3]]
+#way_points = [[128.0,206.9,3.0,-22.1,204.2,3.0]]
+way_points = [[128.0,206.9,3.0,-22.1,204.2,3.0,180],[7.2,-33.4,3.0,10.0,-106.3,3.0,270],[155.4,-12.3,3.0,157.9,-105.8,3.0,270],[-152.4,-99.3,3.0,-152.5,-7.7,3.0,90]]
+# way_points = [[132.4,129.0,3.0,20.4,130.5,3.0,180]]
 
 class CarlaVehicle(object):
     """
@@ -47,6 +57,8 @@ class CarlaVehicle(object):
         self.observation_space = np.array([STATE_SPACE])
         self.action_space = np.array([ACTION_SPACE])
 
+        
+
     def reset(self, Norender=False):
         '''reset function to reset the environment before 
         the begining of each episode
@@ -55,6 +67,10 @@ class CarlaVehicle(object):
         self.collision_hist = []
         self.world = self.client.get_world()
         self.map = self.world.get_map()
+        self.idx = randrange(len(way_points)) #random way point selction on every episode
+        self.apply_brake = 0 #after reaching endpoint apply brakes
+        self.brake_power = 0.5  #brake power after reaching endpoint
+        # print("this is way_point ",way_points[self.idx])
         '''target_location: Orientation details of the target loacation
 		(To be obtained from route planner)'''
         # self.target_waypoint = carla.Transform(carla.Location(x = 1.89, y = 117.06, z=0), carla.Rotation(yaw=269.63))
@@ -71,12 +87,12 @@ class CarlaVehicle(object):
 
         # create ego vehicle the reason for adding offset to z is to avoid collision
         init_pos = carla.Transform(carla.Location(
-            x=128, y=206.9, z=3), carla.Rotation(yaw=180))
+            x=way_points[self.idx][0], y=way_points[self.idx][1], z=way_points[self.idx][2]), carla.Rotation(yaw=way_points[self.idx][6]))
         self.vehicle = self.world.spawn_actor(self.bp, init_pos)
         self.actor_list.append(self.vehicle)
         self.end_pos = carla.Transform(carla.Location(
-            x=-22.1, y=204.2, z=3), carla.Rotation(yaw=180))
-        self.end_pos = np.array([-22.1, 204.2, 3])   
+            x=way_points[self.idx][3], y=way_points[self.idx][4], z=way_points[self.idx][5]), carla.Rotation(yaw=180))
+        self.end_pos = np.array([way_points[self.idx][3],way_points[self.idx][4], way_points[self.idx][5]])   
         # Create location to spawn sensors
         transform = carla.Transform(carla.Location(x=2.5, z=0.7))
         # Create Collision Sensors
@@ -196,12 +212,17 @@ class CarlaVehicle(object):
 
     def step(self, action):
         # Apply Vehicle Action
-        self.vehicle.apply_control(carla.VehicleControl(
+        if(self.apply_brake):
+             self.vehicle.apply_control(carla.VehicleControl(
+            throttle=0.0, steer=action[1], brake=action[2]+ self.brake_power, reverse=action[3]))
+        else:
+              self.vehicle.apply_control(carla.VehicleControl(
             throttle=action[0], steer=action[1], brake=action[2], reverse=action[3]))
 
     # Method to take action by the DQN Agent for straight drive
 
     def step_straight(self, action, p):
+        # print("apply brake ",self.apply_brake)
         done = False
         self.step(action)
         # Calculate vehicle speed
@@ -219,11 +240,15 @@ class CarlaVehicle(object):
         norm_dis = math.sqrt((current_location.x - self.end_pos[0])**2+(current_location.y - self.end_pos[1])**2 + (current_location.z - self.end_pos[2])**2)
         # print("current x location")
         # print(obs)
-
+        # if(norm_dis<20):
+        #     self.apply_brake=1
+        # print(norm_dis)
         if p:
             print(
                 f'collision_hist----{self.collision_hist}------kmh----{kmh}------light----{self.vehicle.is_at_traffic_light()}')
-
+        reward = 0
+        if(self.apply_brake and kmh>0): #decrease the reward if the ego vehicle stops far away from start point
+            reward-=10
         reward = 0
         if len(self.collision_hist) != 0:
             done = True
@@ -231,9 +256,11 @@ class CarlaVehicle(object):
             # self.destroy()
         # incorporated that the ego should slow down near end point
         elif norm_dis < 10 and int(kmh)<= 5:
+            self.apply_brake=1
             done = False
             reward += 200
         elif norm_dis < 10 and int(kmh)> 5:
+            self.apply_brake=1
             done = False
             reward -= 200
         elif kmh < 2:

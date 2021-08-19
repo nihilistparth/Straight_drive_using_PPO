@@ -90,6 +90,7 @@ class PPO:
         self.env = env
         self.obs_dim = env.observation_space[0]
         self.act_dim = env.action_space[0]
+        self.ep_num =1
         print(self.act_dim)
 
         # Initialize actor and critic networks
@@ -327,7 +328,8 @@ class PPO:
                 if self.env != None:
                     self.env.destroy()
                     time.sleep(1)
-                print("Episode ", ep_t, "Score ", score)
+                print("Episode ", self.ep_num, " Score ", score," episode time ",ep_t)
+                self.ep_num +=1
         time.sleep(1)
 
         # Reshape data as tensors in the shape specified in function description, before returning
