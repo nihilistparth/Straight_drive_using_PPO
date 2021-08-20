@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.distributions import MultivariateNormal
+from collections import deque
+from statistics import mean
 now = time.localtime()
 MODEL_NAME = '2X64'
 dir = f"runs/{MODEL_NAME}Aug_{now.tm_mday}_{now.tm_min}_{now.tm_hour}"
@@ -91,6 +93,7 @@ class PPO:
         self.obs_dim = env.observation_space[0]
         self.act_dim = env.action_space[0]
         self.ep_num =1
+        self.rew_list=[]
         print(self.act_dim)
 
         # Initialize actor and critic networks
@@ -313,7 +316,7 @@ class PPO:
                     radar_data = np.append(radar_data, speed)
                     radar_data = np.append(radar_data, distance)
                     obs = radar_data
-                    avg_reward = sum(ep_rews) / float(len(ep_rews))
+                    # avg_reward = sum(ep_rews) / float(len(ep_rews))
 
                     # If the environment tells us the episode is terminated, break
 
@@ -323,7 +326,8 @@ class PPO:
                 # Track episodic lengths and rewards
                 batch_lens.append(ep_t + 1)
                 batch_rews.append(ep_rews)
-                self.tensorboard.update_stats(reward_avg=[None,score])
+                self.rew_list.append(score)
+                self.tensorboard.update_stats(reward_avg=[None,mean(self.rew_list)])
             finally:
                 if self.env != None:
                     self.env.destroy()
