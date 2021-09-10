@@ -24,8 +24,6 @@ dir = f"runs/{MODEL_NAME}Aug_{now.tm_mday}_{now.tm_min}_{now.tm_hour}"
 from torch.utils.tensorboard import SummaryWriter
 
 
-
-
 class ModifiedTensorBoard(TensorBoard):
     # Overriding init to set initial step and writer (we want one log file for all .fit() calls)
     def __init__(self, **kwargs):
@@ -90,7 +88,9 @@ class PPO:
 
         # Extract environment information
         self.env = env
-        self.obs_dim = env.observation_space[0]
+        # self.obs_dim = env.observation_space[0]
+        self.radar_space = env.radar_space[0]
+        self.state_space = env.state_space[0]
         self.act_dim = env.action_space[0]
         self.ep_num =1
         self.rew_list=[]
@@ -98,10 +98,10 @@ class PPO:
 
         # Initialize actor and critic networks
         # ALG STEP 1
-        self.actor = policy_class(self.obs_dim, self.act_dim)
+        self.actor = policy_class(self.radar_space,self.state_space, self.act_dim,"actor")
         # print("action space", self.act_dim)
-        # print("Observation space", self.obs_dim)
-        self.critic = policy_class(self.obs_dim, 1)
+        # print("Observation space", self.radar_space,self.state_space)
+        self.critic = policy_class(self.radar_space,self.state_space, 1,"critic")
         # ar = np.ones((1,602))
         # ar = torch.tensor(ar,dtype=torch.float)
         # writer.add_graph(self.actor, ar)
@@ -147,7 +147,7 @@ class PPO:
         # ALG STEP 2
         while t_so_far < total_timesteps:
             # Autobots, roll out (just kidding, we're collecting our batch simulations here)
-            batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lens = self.rollout(
+            batch_radar,batch_state, batch_acts, batch_log_probs, batch_rtgs, batch_lens = self.rollout(
             )                     # ALG STEP 3
 
             # Calculate how many timesteps we collected this batch
@@ -161,7 +161,7 @@ class PPO:
             self.logger['i_so_far'] = i_so_far
 
             # Calculate advantage at k-th iteration
-            V, _ = self.evaluate(batch_obs, batch_acts)
+            V, _ = self.evaluate(batch_radar,batch_state, batch_acts)
             # ALG STEP 5
             A_k = batch_rtgs - V.detach()
 
@@ -175,7 +175,7 @@ class PPO:
             # ALG STEP 6 & 7
             for _ in range(self.n_updates_per_iteration):
                 # Calculate V_phi and pi_theta(a_t | s_t)
-                V, curr_log_probs = self.evaluate(batch_obs, batch_acts)
+                V, curr_log_probs = self.evaluate(batch_radar,batch_state, batch_acts)
 
                 # Calculate the ratio pi_theta(a_t | s_t) / pi_theta_k(a_t | s_t)
                 # NOTE: we just subtract the logs, which is the same as
@@ -249,7 +249,8 @@ class PPO:
                         batch_lens - the lengths of each episode this batch. Shape: (number of episodes)
         """
         # Batch data. For more details, check function header.
-        batch_obs = []
+        batch_radar = []
+        batch_state = []
         batch_acts = []
         batch_log_probs = []
         batch_rews = []
@@ -268,7 +269,9 @@ class PPO:
                 ep_rews = []  # rewards collected per episode
 
                 # Reset the environment. sNote that obs is short for observation.
-                obs = self.env.reset()
+                radar_obs,state_obs = self.env.reset()
+                # print("This is radar obs shape ",radar_obs.shape)
+                # print("This is state obs shape ",state_obs.shape)
                 time.sleep(1)
                 done = False
                 score = 0
@@ -281,11 +284,12 @@ class PPO:
                     t += 1  # Increment timesteps ran this batch so far
 
                     # Track observations in this batch
-                    batch_obs.append(obs)
+                    batch_radar.append(radar_obs)
+                    batch_state.append(state_obs)
 
                     # Calculate action and make a step in the env.
                     # Note that rew is short for reward.
-                    action, log_prob = self.get_action(obs)
+                    action, log_prob = self.get_action(radar_obs,state_obs)
                     # print("action[0]=> ",action[0])
                     choice = action[0]
                     # print("action=> ",action)
@@ -302,8 +306,13 @@ class PPO:
 					'''
                     radar_data, speed, rew, done, distance = self.env.step_straight(
                         final_action, 0)
+                    # print("This is radar data shape 111",radar_data.shape)
                     rew = int(rew)
                     score += rew
+                    state_data = []
+                    state_data.insert(0,speed)
+                    state_data.insert(1,distance)
+                    state_data = np.array(state_data)
                     # print("Distance", distance, " Speed ", speed)
                     # obs = []
                     # obs.append(radar_data)
@@ -313,9 +322,9 @@ class PPO:
                     ep_rews.append(rew)
                     batch_acts.append(choice)
                     batch_log_probs.append(log_prob)
-                    radar_data = np.append(radar_data, speed)
-                    radar_data = np.append(radar_data, distance)
-                    obs = radar_data
+                   
+                    radar_obs = radar_data
+                    state_obs = state_data
                     # avg_reward = sum(ep_rews) / float(len(ep_rews))
 
                     # If the environment tells us the episode is terminated, break
@@ -337,7 +346,9 @@ class PPO:
         time.sleep(1)
 
         # Reshape data as tensors in the shape specified in function description, before returning
-        batch_obs = torch.tensor(batch_obs, dtype=torch.float)
+        # batch_obs = torch.tensor(batch_obs, dtype=torch.float)
+        batch_radar = torch.tensor(batch_radar, dtype=torch.float)
+        batch_state = torch.tensor(batch_state, dtype=torch.float)
         batch_acts = torch.tensor(batch_acts, dtype=torch.float)
         batch_log_probs = torch.tensor(batch_log_probs, dtype=torch.float)
         # ALG STEP 4
@@ -347,7 +358,7 @@ class PPO:
         self.logger['batch_rews'] = batch_rews
         self.logger['batch_lens'] = batch_lens
 
-        return batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lens
+        return batch_radar,batch_state, batch_acts, batch_log_probs, batch_rtgs, batch_lens
 
     def compute_rtgs(self, batch_rews):
         """
@@ -379,7 +390,7 @@ class PPO:
 
         return batch_rtgs
 
-    def get_action(self, obs):
+    def get_action(self, radar_obs,state_obs):
         """
                 Queries an action from the actor network, should be called from rollout.
 
@@ -391,13 +402,14 @@ class PPO:
                         log_prob - the log probability of the selected action in the distribution
         """
         # Query the actor network for a mean action
-        dims = self.env.observation_space[0]
+        #dims = self.env.observation_space[0]
         # print("Obs shape -> ",obs.shape)
         # obs = np.reshape(obs, (dims,1))
         # print("Obs shape -> ",obs.shape)
-
-        mean = self.actor(obs)
-        self.writer.add_graph(self.actor,torch.tensor(obs,dtype=torch.float))
+        # print("This is radar shape 111 ",radar_obs.shape)
+        mean = self.actor(radar_obs,state_obs,None)
+        #self.writer.add_graph(self.actor,torch.tensor(radar_obs,dtype=torch.float),torch.tensor(state_obs,dtype=torch.float),None)
+        # self.writer.add_graph(self.actor,torch.tensor(state_obs,dtype=torch.float))
 
         # Create a distribution with the mean action and std from the covariance matrix above.
         # For more information on how this distribution works, check out Andrew Ng's lecture on it:
@@ -413,7 +425,7 @@ class PPO:
         # Return the sampled action and the log probability of that action in our distribution
         return action.detach().numpy(), log_prob.detach()
 
-    def evaluate(self, batch_obs, batch_acts):
+    def evaluate(self, batch_radar,batch_state, batch_acts):
         """
                 Estimate the values of each observation, and the log probs of
                 each action in the most recent batch with the most recent
@@ -431,11 +443,11 @@ class PPO:
         """
         # print("batch_obs shape", batch_obs.shape)
         # Query critic network for a value V for each batch_obs. Shape of V should be same as batch_rtgs
-        V = self.critic(batch_obs).squeeze()
+        V = self.critic(batch_radar,batch_state,None).squeeze()
 
         # Calculate the log probabilities of batch actions using most recent actor network.
         # This segment of code is similar to that in get_action()
-        mean = self.actor(batch_obs)
+        mean = self.actor(batch_radar,batch_state,None)
         dist = MultivariateNormal(mean, self.cov_mat)
         batch_acts = batch_acts.resize_((batch_acts.shape[0], 1))
         # print("batch_act shape", batch_acts.shape)

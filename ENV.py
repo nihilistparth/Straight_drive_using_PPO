@@ -17,7 +17,7 @@ from random import randrange
 ROUNDING_FACTOR = 3
 SECONDS_PER_EPISODE = 80
 LIMIT_RADAR = 600
-STATE_SPACE = 602
+STATE_SPACE = 2
 ACTION_SPACE =1
 np.random.seed(32)
 random.seed(32)
@@ -53,7 +53,8 @@ class CarlaVehicle(object):
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(5.0)
         self.radar_data = deque(maxlen=MAX_LEN)
-        self.observation_space = np.array([STATE_SPACE])
+        self.state_space = np.array([STATE_SPACE])
+        self.radar_space = np.array([LIMIT_RADAR])
         self.action_space = np.array([ACTION_SPACE])
 
         
@@ -128,10 +129,17 @@ class CarlaVehicle(object):
         current_position = np.array(current_position)
         data = np.array(self.radar_data)
         data = data[-LIMIT_RADAR:]
-        data = np.append(data, 0.0)
-        data = np.append(data,  (current_location.x - self.end_pos[0])**2+(current_location.y - self.end_pos[1])**2 + (current_location.z - self.end_pos[2])**2)
+        # data = np.append(data, 0.0)
+        # data = np.append(data,  (current_location.x - self.end_pos[0])**2+(current_location.y - self.end_pos[1])**2 + (current_location.z - self.end_pos[2])**2)
         # print("data shape ",data.shape)
-        return data
+        norm_dis = math.sqrt((current_location.x - self.end_pos[0])**2+(current_location.y - self.end_pos[1])**2 + (current_location.z - self.end_pos[2])**2)
+        state = []
+        state.insert(0,norm_dis) 
+        state.insert(1,norm_dis)
+        state = np.array(state)
+        # state = np.reshape(state,(2,1))
+        
+        return data,state
 
     def resetRadarData(self, dist, hfov, vfov):
         # [Altitude, Azimuth, Dist, Velocity]
@@ -293,7 +301,7 @@ class CarlaVehicle(object):
             reward = reward-200
             # self.destroy()
         data = np.array(self.radar_data)
-
+        # print("data shape ",data.shape)
         return data[-LIMIT_RADAR:], int(kmh), reward, done, norm_dis
 
     def destroy(self):

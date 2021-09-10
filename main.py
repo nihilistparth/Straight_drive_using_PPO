@@ -93,26 +93,28 @@ def test(env, actor_model):
 		sys.exit(0)
 
 	# Extract out dimensions of observation and action spaces
-	obs_dim = env.observation_space.shape[0]
-	act_dim = env.action_space.shape[0]
+	radar_space = env.radar_space[0]
+	state_space = env.state_space[0]
+	act_dim = env.action_space[0]
 	# obs_dim = [600]
 	# act_dim = [1
 	# Build our policy the same way we build our actor model in PPO
-	policy = FeedForwardNN(obs_dim, act_dim)
-
+	# policy = FeedForwardNN(state,obs_dim, act_dim)
+	actor = FeedForwardNN(radar_space,state_space, act_dim,"actor")
 	# Load in the actor model saved by the PPO algorithm
-	policy.load_state_dict(torch.load(actor_model))
-
+	actor.load_state_dict(torch.load(actor_model))
+	cov_var = torch.full(size=(act_dim,), fill_value=0.5)
+	cov_mat = torch.diag(cov_var)
 	# Evaluate our policy with a separate module, eval_policy, to demonstrate
 	# that once we are done training the model/policy with ppo.py, we no longer need
 	# ppo.py since it only contains the training algorithm. The model/policy itself exists
 	# independently as a binary file that can be loaded in with torch.
-	eval_policy(policy=policy, env=env, render=True)
+	eval_policy(cov_var,cov_mat,policy=actor, env=env,render=True)
 
 def main(args):
 	"""
 		The main function to run.
-
+,
 		Parameters:
 			args - the arguments parsed from command line
 

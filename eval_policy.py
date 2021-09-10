@@ -5,7 +5,10 @@
 	which resides in ppo.py. Thus, we can test our trained policy without 
 	relying on ppo.py.
 """
-
+import numpy as np
+import time
+import torch
+from torch.distributions import MultivariateNormal
 def _log_summary(ep_len, ep_ret, ep_num):
 		"""
 			Print to stdout what we've logged so far in the most recent episode.
@@ -28,7 +31,7 @@ def _log_summary(ep_len, ep_ret, ep_num):
 		print(f"------------------------------------------------------", flush=True)
 		print(flush=True)
 
-def rollout(policy, env, render):
+def rollout(cov_var,cov_mat,policy, env, render):
 	"""
 		Returns a generator to roll out each episode given a trained policy and
 		environment to test on. 
@@ -48,9 +51,12 @@ def rollout(policy, env, render):
 			If you're unfamiliar with Python "yield", check this out:
 				https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do
 	"""
+	
 	# Rollout until user kills process
 	while True:
-		obs = env.reset()
+		# obs = env.reset()
+		radar_obs,state_obs = env.reset()
+		time.sleep(1)
 		done = False
 
 		# number of timesteps so far
@@ -59,28 +65,44 @@ def rollout(policy, env, render):
 		# Logging data
 		ep_len = 0            # episodic length
 		ep_ret = 0            # episodic return
+		try :
+			while not done and t<=50:
+				t += 1
 
-		while not done:
-			t += 1
+				# Render environment if specified, off by default
+				# if render:
+				# 	env.render()
 
-			# Render environment if specified, off by default
-			if render:
-				env.render()
+				# Query deterministic action from policy and run it
+				# action = policy(obs).detach().numpy()
+				# action, log_prob = get_action(radar_obs,state_obs,cov_var,cov_mat)
+				mean = policy(radar_obs,state_obs,None)
+				dist = MultivariateNormal(mean, cov_mat)
+				action = dist.sample()
+				action.detach().numpy()
+				choice = action[0]
+				final_action = choose_action_straight(choice)
+				time.sleep(0.5)
+				# obs, rew, done, _ = env.step(action)
+				radar_obs, speed, rew, done, distance = env.step_straight(
+							final_action, 0)
 
-			# Query deterministic action from policy and run it
-			action = policy(obs).detach().numpy()
-			obs, rew, done, _ = env.step(action)
-
-			# Sum all episodic rewards as we go along
-			ep_ret += rew
-			
+				# Sum all episodic rewards as we go along
+				ep_ret += rew
+				state_data = []
+				state_data.insert(0,speed)
+				state_data.insert(1,distance)
+				state_data = np.array(state_data)
+				state_obs = state_data
 		# Track episodic length
-		ep_len = t
+		finally:
+			env.destroy()
+			ep_len = t
 
 		# returns episodic length and return in this iteration
 		yield ep_len, ep_ret
 
-def eval_policy(policy, env, render=False):
+def eval_policy(cov_var,cov_mat,policy, env, render=False):
 	"""
 		The main function to evaluate our policy with. It will iterate a generator object
 		"rollout", which will simulate each episode and return the most recent episode's
@@ -98,5 +120,14 @@ def eval_policy(policy, env, render=False):
 		NOTE: To learn more about generators, look at rollout's function description
 	"""
 	# Rollout with the policy and environment, and log each episode's data
-	for ep_num, (ep_len, ep_ret) in enumerate(rollout(policy, env, render)):
+	for ep_num, (ep_len, ep_ret) in enumerate(rollout(cov_var,cov_mat,policy, env, render)):
 		_log_summary(ep_len=ep_len, ep_ret=ep_ret, ep_num=ep_num)
+
+def choose_action_straight( choice):
+	# Choice will be a continuous value between 0-1
+
+	action = []
+	action = [float(choice), 0, 0, False]
+
+	return action
+
