@@ -1,5 +1,5 @@
 # Straight_drive_using_PPO
-<video src='Carla_test_1.webm' width=180/>
+![Alt text](St_drive.gif)
 ## Usage
 First I recommend creating a python virtual environment:
 ```
